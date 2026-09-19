@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(node_modules/.bin/tsc --noEmit 2>&1)",
+      "Bash(make down-force:*)",
+      "Bash(make up:*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}
