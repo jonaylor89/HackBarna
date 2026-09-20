@@ -1007,6 +1007,7 @@ async fn trigger_devin_session(incident_id: String, s: Arc<AppState>) -> Result<
         last_actions_hash: String::new(),
         no_action_deadline: (Utc::now() + Duration::seconds(300)).to_rfc3339(),
         structured_output: None,
+        last_redirect_path_risk: 0.0,
     };
     let mut sim = s.sim.write().await;
     sim.actions.push(action);
@@ -1181,7 +1182,17 @@ async fn tick_loop(s: Arc<AppState>) {
                 );
                 write_audit(&s, &action);
                 sim.actions.push(action);
+                let incident_id_for_devin = incident.id.clone();
                 sim.incidents.push(incident);
+                // Jev → Devin handoff: auto-trigger slow reasoning on incident creation
+                if s.devin.is_some() {
+                    let s2 = s.clone();
+                    tokio::spawn(async move {
+                        if let Err((_, e)) = trigger_devin_session(incident_id_for_devin, s2).await {
+                            warn!("Auto Devin trigger failed: {e}");
+                        }
+                    });
+                }
             } else if let Some(incident) = sim.incidents.first_mut() {
                 incident.signals = signals.clone()
             }
@@ -1513,6 +1524,62 @@ async fn devin_poll_loop(s: Arc<AppState>) {
                     }
                 }
                 Err(e) => warn!("Devin poll {} failed: {}", session.session_id, e),
+            }
+        }
+
+        // Jev → Devin: if a drone's path risk has changed enough that Jev would
+        // want it repositioned, redirect the running session with current signals.
+        let (path_risk, hour, drone_summary, reroute_threshold) = {
+            let sim = s.sim.read().await;
+            let incident = sim.incidents.first();
+            (
+                incident.map(|i| i.signals.path_risk).unwrap_or(0.0),
+                sim.hour,
+                sim.drones
+                    .iter()
+                    .map(|d| format!("{} {}", d.id, d.status))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                sim.policy.auto_reroute_drone_when_path_risk_gte,
+            )
+        };
+        if path_risk >= reroute_threshold {
+            let running: Vec<DevinSession> = s
+                .sim
+                .read()
+                .await
+                .devin_sessions
+                .iter()
+                .filter(|x| x.status == "running")
+                .cloned()
+                .collect();
+            for session in running {
+                let delta = (path_risk - session.last_redirect_path_risk).abs();
+                if delta < 0.12 {
+                    continue;
+                }
+                let msg = format!(
+                    "[JEV] Drone path risk is now {:.0}% at replay hour {:.1}. \
+                     Drone status: {drone_summary}. \
+                     Update your route recommendations in structured_output.",
+                    path_risk * 100.0,
+                    hour,
+                );
+                match client.redirect(&session.session_id, &msg).await {
+                    Ok(_) => {
+                        if let Some(ds) = s
+                            .sim
+                            .write()
+                            .await
+                            .devin_sessions
+                            .iter_mut()
+                            .find(|x| x.session_id == session.session_id)
+                        {
+                            ds.last_redirect_path_risk = path_risk;
+                        }
+                    }
+                    Err(e) => warn!("Jev→Devin path-risk redirect failed: {e}"),
+                }
             }
         }
     }

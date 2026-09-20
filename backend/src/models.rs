@@ -107,6 +107,8 @@ pub struct DevinSession {
     pub last_actions_hash: String,
     pub no_action_deadline: String,
     pub structured_output: Option<Value>,
+    /// Path risk value at the time of the last Jev→Devin redirect, for debouncing.
+    pub last_redirect_path_risk: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
