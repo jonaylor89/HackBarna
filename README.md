@@ -22,6 +22,8 @@ The replay scores only hotspot evidence available at the current simulated insta
 - Rust/axum authoritative simulation API
 - SQLite audit event store via rusqlite
 - Async Cognition Devin API client behind a deterministic policy engine
+- Vonage Video API incident-briefing room with server-minted, short-lived credentials
+- SLNG speech-to-text/text-to-speech relay for the simulated field liaison
 
 ## Run
 
@@ -77,14 +79,47 @@ The five historical OGC datasets bake successfully. As of this build, `POST /v1/
 | GET | `/sim/audit` | Last 250 SQLite audit events |
 | POST | `/sim/devin/trigger/:incident_id` | Freeze state, upload fixture, create session |
 | POST | `/sim/devin/sessions/:id/redirect` | Mid-session wind-shift redirect |
+| POST | `/sim/briefing/session` | Mint a Vonage Video API session/token (server-side credentials only) |
+| POST | `/sim/liaison/transcribe` | Send recorded audio to SLNG STT, then return a evidence-bounded briefing |
+| POST | `/sim/liaison/text` | Return a deterministic, evidence-bounded typed briefing |
+| POST | `/sim/liaison/speech` | Render a briefing response with SLNG TTS |
+
+## Simulated incident briefing (Vonage + SLNG)
+
+`JOIN BRIEFING` opens a real Vonage Video API room for the operator's camera/microphone and a voice interface to the **SIMULATED FIELD LIAISON**. The liaison answers only from the selected baked fixture and current replay state. It refuses real-world dispatch, public-warning, evacuation, and live-data requests; it never represents a real firefighter or emergency service.
+
+Create a Vonage application with the Video capability, download its generated RSA private key to `.secrets/vonage-private.key`, then add the server-only values in `.env` (see `.env.example`) and restart the backend:
+
+```bash
+VONAGE_APPLICATION_ID=...
+VONAGE_PRIVATE_KEY_PATH=.secrets/vonage-private.key
+SLNG_API_KEY=...
+# Optional: select models/voice from your SLNG catalog.
+SLNG_STT_MODEL=slng/deepgram/nova:3-en
+SLNG_TTS_MODEL=slng/deepgram/aura:2-en
+SLNG_TTS_VOICE=aura-2-thalia-en
+```
+
+The frontend receives only a short-lived Vonage session token. If credentials are absent, the briefing modal remains usable for the deterministic text liaison and explicitly reports that video or SLNG voice is unavailable; no credential is exposed to Vite/client code.
+
+Ari's conversational layer uses an OpenAI-compatible chat-completions endpoint. Each briefing gets an isolated conversation ID and retains the most recent six exchanges. Every turn receives a newly generated read-only replay snapshot, so timeline evidence takes precedence over conversational memory. Configure it server-side:
+
+```bash
+LIAISON_LLM_BASE_URL=https://api.openai.com/v1
+LIAISON_LLM_API_KEY=...
+LIAISON_LLM_MODEL=gpt-4.1-mini
+```
+
+`GET /sim/liaison/context` exposes the same non-secret, read-only snapshot used for grounding. If the model is unavailable, the backend logs the failure and safely falls back to deterministic evidence templates; the UI labels which responder produced the answer.
 
 ## Devin setup
 
-1. Create a Cognition service user with `ManageOrgSessions`.
-2. Set `DEVIN_API_KEY`.
-3. Obtain the org id via `GET /v3/enterprise/organizations`; set `DEVIN_ORG_ID`.
-4. Create one reusable wildfire incident forecast playbook; set `DEVIN_PLAYBOOK_ID`.
-5. Optionally set `DEVIN_MAX_ACU` (default `2`).
+1. In the target organization's **Settings → Devin API**, create an organization-scoped service user with `UseDevinSessions` (required to upload the fixture and create a session) and `ViewOrgSessions` (required to poll it). Add `ManageOrgSessions` only when using the redirect/message endpoint.
+2. Set its `cog_`-prefixed key as `DEVIN_API_KEY` and copy that Settings page's organization ID into `DEVIN_ORG_ID`.
+3. Create one reusable wildfire incident forecast playbook; set `DEVIN_PLAYBOOK_ID`.
+4. Optionally set `DEVIN_MAX_ACU` (default `2`).
+
+An organization-scoped service user cannot call `GET /v3/enterprise/organizations`; that endpoint requires an enterprise-scoped service user and returns `403`. This is expected and is not evidence that session creation is unavailable. Confirm the configured key and its organization with `GET /v3/self` instead.
 
 The backend uploads the frozen fixture, creates an asynchronous session with a required action schema, polls structured output, logs each proposal, and runs it through `policy.rs`. Approved and vetoed decisions are separate SQLite events. A 90-second no-action timeout falls back to deterministic Jev verification logic.
 

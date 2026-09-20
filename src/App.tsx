@@ -4,6 +4,7 @@ import { PixiMap } from './components/PixiMap'
 import { Timeline } from './components/Timeline'
 import { TerminalLog } from './components/TerminalLog'
 import { DevinPanel, JevPanel } from './components/AgentPanels'
+import { BriefingModal } from './components/BriefingModal'
 import { loadFixtures } from './data/fixtures'
 import { DEFAULT_WEIGHTS, computeForecastConfidence, computeIncidentConfidence, computePathRisk, computeArrivalMinutes, visibleHotspots } from './data/simulation'
 import type { ActionEvent, DevinStructuredOutput, DroneState, FireFixture, IncidentState } from './data/types'
@@ -70,6 +71,7 @@ function buildIncident(fixture: FireFixture, drones: DroneState[], hour: number)
 
 export default function App() {
   const [loading, setLoading] = useState(true)
+  const [briefingOpen, setBriefingOpen] = useState(false)
   const fixtures = useAppStore((s) => s.fixtures)
   const activeId = useAppStore((s) => s.activeFireId)
   const hour = useAppStore((s) => s.timeline.hour)
@@ -210,7 +212,10 @@ export default function App() {
             <p className="mt-1 hidden text-[10px] text-gba-uiDim sm:block">Jev reacts. Devin reasons. FastAndSlow acts.</p>
           </div>
         </div>
-        <FirePicker fixtures={fixtures} />
+        <div className="flex items-center gap-2">
+          <FirePicker fixtures={fixtures} />
+          <button className="gba-btn gba-btn--accent whitespace-nowrap" onClick={() => setBriefingOpen(true)}>JOIN BRIEFING</button>
+        </div>
       </header>
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-2 p-2 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -233,6 +238,7 @@ export default function App() {
           </div>
         </aside>
       </main>
+      <BriefingModal open={briefingOpen} onClose={() => setBriefingOpen(false)} />
     </div>
   )
 }

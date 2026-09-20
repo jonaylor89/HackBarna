@@ -95,7 +95,7 @@ impl DevinClient {
         let org_id = self
             .org_id
             .as_deref()
-            .ok_or("DEVIN_ORG_ID is not set; call /sim/devin/organizations first")?;
+            .ok_or("DEVIN_ORG_ID is not set; copy the organization ID from Settings → Devin API (or use GET /v3/self for an organization-scoped key)")?;
         let playbook_id = self
             .playbook_id
             .as_deref()
